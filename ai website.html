@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+ 
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Interaction App (Local Analysis)</title>
+    <style>
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; gap: 20px; padding: 20px; background: #f0f0f0; }
+        .controls, .io-areas { display: flex; gap: 10px; background: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .io-areas { flex-direction: column; width: 90%; max-width: 600px; }
+        textarea { width: 100%; height: 3em; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        #videoFeed { width: 480px; height: 360px; border: 2px solid #333; background: #000; border-radius: 8px; }
+        button { padding: 10px 20px; font-size: 16px; border: none; border-radius: 4px; color: #fff; cursor: pointer; }
+        .start { background: #28a745; }
+        .stop { background: #dc3545; }
+        label { font-weight: bold; }
+        select { padding: 6px; border-radius: 4px; border: 1px solid #ccc; }
+        canvas { display: none; }
+    </style>
+</head>
+<body>
+    <h1>Camera Interaction App (Local Analysis)</h1>
+    <video id="videoFeed" autoplay playsinline></video>
+    <canvas id="canvas"></canvas>
+    <div class="io-areas">
+        <div>
+            <label for="instructionText">Instruction:</label>
+            <textarea id="instructionText">Describe the dominant color and brightness.</textarea>
+        </div>
+        <div>
+            <label for="responseText">Response:</label>
+            <textarea id="responseText" readonly placeholder="Analysis will appear here..."></textarea>
+        </div>
+    </div>
+    <div class="controls">
+        <label for="intervalSelect">Interval:</label>
+        <select id="intervalSelect"><option value="500" selected>500ms</option><option value="1000">1s</option></select>
+        <button id="startButton" class="start">Start</button>
+    </div>
+
+    <script>
+        const video = document.getElementById('videoFeed');
+        const canvas = document.getElementById('canvas');
+        const instr = document.getElementById('instructionText');
+        const resp = document.getElementById('responseText');
+        const intervalSelect = document.getElementById('intervalSelect');
+        const startButton = document.getElementById('startButton');
+        let stream, intervalId, running = false;
+
+        // access camera
+        async function initCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video:true });
+                video.srcObject = stream;
+                resp.value = 'Camera ready.';
+            } catch(e) {
+                alert('Camera error: ' + e.message);
+                resp.value = 'Camera access failed.';
+            }
+        }
+
+        function analyzeFrame() {
+            if (!video.videoWidth) return null;
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0);
+            const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+            let r=0,g=0,b=0;
+            const total = data.length/4;
+            for(let i=0;i<data.length;i+=4) {
+                r += data[i]; g += data[i+1]; b += data[i+2];
+            }
+            r = Math.round(r/total);
+            g = Math.round(g/total);
+            b = Math.round(b/total);
+            const brightness = Math.round((r+g+b)/3);
+            return {r,g,b,brightness};
+        }
+
+        function describeAnalysis({r, g, b, brightness}) {
+    // White if very bright and all channels high
+    if (brightness > 245 && r > 200 && g > 200 && b > 200) {
+        var color = 'white';
+    }
+    // Yellow: red & green high, blue low
+    else if (r > 200 && g > 200 && b < 150) {
+        var color = 'yellow';
+    }
+    // Orange: red very high, green moderate, blue low
+    else if (r > 200 && g > 100 && g <= 200 && b < 100) {
+        var color = 'orange';
+    }
+    // Brown: red moderate, green lower, blue low, medium brightness
+    else if (r > 100 && r < 200 && g > 50 && g < 150 && b < 100 && brightness < 150) {
+        var color = 'brown';
+    }
+    // Otherwise, pick dominant primary
+    else {
+        const dom = [
+            {col: 'red', val: r},
+            {col: 'green', val: g},
+            {col: 'blue', val: b}
+        ].sort((a, b) => b.val - a.val)[0].col;
+        var color = dom;
+    }
+    const brightDesc = brightness > 200 ? 'very bright'
+                     : brightness > 150 ? 'bright'
+                     : brightness > 100 ? 'normal'
+                     : 'dim';
+    return `Color: ${color}. Overall brightness: ${brightDesc} (${brightness.toFixed(1)}).`;
+}
+
+
+        function step() {
+            const result = analyzeFrame();
+            if (result) resp.value = describeAnalysis(result);
+        }
+
+        function start() {
+            if (!stream) return alert('Camera not ready');
+            running = true;
+            startButton.textContent='Stop'; startButton.className='stop';
+            instr.disabled = intervalSelect.disabled = true;
+            resp.value = 'Analyzing...';
+            step();
+            intervalId = setInterval(step, +intervalSelect.value);
+        }
+
+        function stop() {
+            running = false;
+            clearInterval(intervalId);
+            startButton.textContent='Start'; startButton.className='start';
+            instr.disabled = intervalSelect.disabled = false;
+            resp.value = 'Stopped.';
+        }
+
+        startButton.onclick = () => running? stop(): start();
+        window.addEventListener('DOMContentLoaded', initCamera);
+        window.addEventListener('beforeunload', ()=>stream?.getTracks().forEach(t=>t.stop()));
+    </script>
+</body>
+</html> 
+
+
+
+
